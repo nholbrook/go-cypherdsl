@@ -277,7 +277,8 @@ const (
 	GreaterThanOperator          BooleanOperator = ">"
 	LessThanOrEqualToOperator    BooleanOperator = "<="
 	GreaterThanOrEqualToOperator BooleanOperator = ">="
-	EqualToOperator              BooleanOperator = "="
+	EqualToOperator              BooleanOperator = "="  // TODO: Rename to `EqualityOperator` to match OC9 spec
+	NotEqualToOperator           BooleanOperator = "<>" // TODO: Rename to `InequalityOperator` to match OC9 spec
 	InOperator                   BooleanOperator = "IN"
 	IsOperator                   BooleanOperator = "IS"
 	RegexEqualToOperator         BooleanOperator = "=~"

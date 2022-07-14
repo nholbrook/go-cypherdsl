@@ -70,6 +70,16 @@ func TestNewCondition(t *testing.T) {
 	req.Nil(err)
 	req.EqualValues("type.value = 'test'", cypher.ToString())
 
+	//type.value != 'test'
+	cypher, err = NewCondition(&ConditionConfig{
+		Name:              "type",
+		Field:             "value",
+		ConditionOperator: NotEqualToOperator,
+		Check:             "test",
+	})
+	req.Nil(err)
+	req.EqualValues("type.value <> 'test'", cypher.ToString())
+
 	//type.value in ['test','test2']
 	cypher, err = NewCondition(&ConditionConfig{
 		Name:              "type",
