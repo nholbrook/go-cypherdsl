@@ -1,4 +1,4 @@
-module github.com/mindstand/go-cypherdsl
+module github.com/nholbrook/go-cypherdsl
 
 go 1.12
 
