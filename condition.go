@@ -301,16 +301,12 @@ type ConditionConfig struct {
 
 func (condition *ConditionConfig) ToString() (string, error) {
 	//check initial error conditions
-	if condition.Name == "" {
-		return "", errors.New("var name can not be empty")
-	}
-
-	if (condition.Field == "" && condition.Label == "") && condition.FieldManipulationFunction == "" {
-		return "", errors.New("field, function or label can not be empty")
+	if condition.Name == "" && condition.Field == "" && condition.Label == "" && condition.FieldManipulationFunction == "" {
+		return "", errors.New("all of Name, Field, Function, and Label must be specified")
 	}
 
 	if condition.Field != "" && condition.Label != "" && condition.FieldManipulationFunction != "" {
-		return "", errors.New("field and label can not both be defined")
+		return "", errors.New("not all of Field, Label, and FieldManipulationFunction can be specified")
 	}
 
 	query := ""
@@ -326,26 +322,28 @@ func (condition *ConditionConfig) ToString() (string, error) {
 		//we're done here
 		return fmt.Sprintf("%s:%s", condition.Name, condition.Label), nil
 	} else {
-		query = condition.Name
+		query += condition.Name
 	}
 
 	if condition.FieldManipulationFunction != "" {
-		query = fmt.Sprintf("%s(%s)", condition.FieldManipulationFunction, query)
+		query += fmt.Sprintf("%s(%s)", condition.FieldManipulationFunction, query)
 	}
 
 	if condition.ConditionOperator == "" && condition.ConditionFunction == "" {
-		return "", errors.New("one of (ConditionOperator) or (ConditionFunction) must be specified")
+		return "", errors.New("one of ConditionOperator or ConditionFunction must be specified")
 	}
 
 	if condition.ConditionOperator != "" && condition.ConditionFunction != "" {
-		return "", errors.New("only one of (ConditionOperator) or (ConditionFunction) can be specified")
+		return "", errors.New("only one of ConditionOperator or ConditionFunction can be specified")
 	}
 
 	// build the operators
 	if condition.ConditionOperator != "" {
 		query += fmt.Sprintf(" %s", condition.ConditionOperator)
 	} else if condition.ConditionFunction != "" {
-		//if it's a condition function, we're done
+		if condition.NegateCondition {
+			return fmt.Sprintf("NOT %s(%s)", condition.ConditionFunction, strings.Trim(query, "NOT ")), nil
+		}
 		return fmt.Sprintf("%s(%s)", condition.ConditionFunction, query), nil
 	}
 
@@ -383,7 +381,7 @@ func (condition *ConditionConfig) ToString() (string, error) {
 			}
 			query += " " + str
 		} else if condition.CheckName != "" && condition.CheckField != "" {
-			query += fmt.Sprintf("%s.%s", condition.CheckName, condition.CheckField)
+			query += fmt.Sprintf(" %s.%s", condition.CheckName, condition.CheckField)
 		} else {
 			return "", errors.New("one of (Check) or (CheckName, CheckField) must be specified")
 		}
