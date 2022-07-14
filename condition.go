@@ -270,10 +270,10 @@ const (
 
 // ConditionConfig is the configuration object for where conditions
 type ConditionConfig struct {
-	//operators that can be used
+	// Operators that can be used
 	ConditionOperator BooleanOperator
 
-	//condition functions that can be used
+	// Condition functions that can be used
 	ConditionFunction string
 
 	Name  string
@@ -294,6 +294,9 @@ type ConditionConfig struct {
 
 	// When using the InOperator, this field must be specified
 	CheckSlice []interface{}
+
+	// When NegateCondition is set to true, NOT is appended to the start of this condition
+	NegateCondition bool
 }
 
 func (condition *ConditionConfig) ToString() (string, error) {
@@ -312,7 +315,11 @@ func (condition *ConditionConfig) ToString() (string, error) {
 
 	query := ""
 
-	//build the fields
+	if condition.NegateCondition {
+		query += "NOT "
+	}
+
+	// Build the fields
 	if condition.Field != "" {
 		query += fmt.Sprintf("%s.%s", condition.Name, condition.Field)
 	} else if condition.Label != "" {
@@ -327,14 +334,14 @@ func (condition *ConditionConfig) ToString() (string, error) {
 	}
 
 	if condition.ConditionOperator == "" && condition.ConditionFunction == "" {
-		return "", errors.New("either condition operator or condition function has to be defined")
+		return "", errors.New("one of (ConditionOperator) or (ConditionFunction) must be specified")
 	}
 
 	if condition.ConditionOperator != "" && condition.ConditionFunction != "" {
-		return "", errors.New("operator and function can not both be defined")
+		return "", errors.New("only one of (ConditionOperator) or (ConditionFunction) can be specified")
 	}
 
-	//build the operators
+	// build the operators
 	if condition.ConditionOperator != "" {
 		query += fmt.Sprintf(" %s", condition.ConditionOperator)
 	} else if condition.ConditionFunction != "" {
