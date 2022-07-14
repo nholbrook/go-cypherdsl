@@ -5,6 +5,8 @@ import (
 	"testing"
 )
 
+// TODO: Convert tests to testing tables
+
 func TestGetStrVersion(t *testing.T) {
 	req := require.New(t)
 
@@ -157,6 +159,79 @@ func TestNewCondition(t *testing.T) {
 		}{},
 	})
 	req.NotNil(err)
+
+	// check NOT exists
+	cypher, err = NewCondition(&ConditionConfig{
+		Name:              "type",
+		Field:             "value",
+		ConditionFunction: "exists",
+		NegateCondition:   true,
+	})
+	req.Nil(err)
+	req.EqualValues("NOT exists(type.value)", cypher.ToString())
+
+	// check NOT IN slice
+	cypher, err = NewCondition(&ConditionConfig{
+		Name:              "type",
+		Field:             "value",
+		ConditionOperator: InOperator,
+		CheckSlice:        []interface{}{"test", "test2"},
+		NegateCondition:   true,
+	})
+	req.Nil(err)
+	req.EqualValues("NOT type.value IN ['test','test2']", cypher.ToString())
+
+	// check matching to value from another node
+	cypher, err = NewCondition(&ConditionConfig{
+		Name:              "type",
+		Field:             "value",
+		ConditionOperator: EqualToOperator,
+		CheckName:         "type2",
+		CheckField:        "value2",
+	})
+	req.Nil(err)
+	req.EqualValues("type.value = type2.value2", cypher.ToString())
+
+	// check path exists with types
+	path := NewPath().
+		V(V{Name: "a", Type: "type"}).
+		E(E{Direction: DirectionOutgoing, Name: "e", Types: []string{"type"}}).
+		V(V{Name: "b", Type: "type"}).Build()
+
+	cypher, err = NewCondition(&ConditionConfig{
+		Path: path,
+	})
+	req.Nil(err)
+	req.EqualValues("(a:type)-[e:type]->(b:type)", cypher.ToString())
+
+	// check path exists with properties
+	params, _ := ParamsFromMap(map[string]interface{}{
+		"x": 1234,
+	})
+
+	path = NewPath().
+		V(V{Name: "a", Params: params}).
+		E(E{Direction: DirectionIncoming, Name: "e"}).
+		V(V{Name: "b", Params: params}).Build()
+
+	cypher, err = NewCondition(&ConditionConfig{
+		Path: path,
+	})
+	req.Nil(err)
+	req.EqualValues("(a{x:1234})<-[e]-(b{x:1234})", cypher.ToString())
+
+	// check path not exists
+	path = NewPath().
+		V(V{Name: "a", Type: "type"}).
+		E(E{Direction: DirectionOutgoing, Name: "e", Types: []string{"type"}}).
+		V(V{Name: "b", Type: "type"}).Build()
+
+	cypher, err = NewCondition(&ConditionConfig{
+		Path:            path,
+		NegateCondition: true,
+	})
+	req.Nil(err)
+	req.EqualValues("NOT (a:type)-[e:type]->(b:type)", cypher.ToString())
 }
 
 func TestConditionBuilder(t *testing.T) {
