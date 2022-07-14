@@ -12,7 +12,7 @@ type ConditionBuilder struct {
 	errors  []error
 }
 
-//should be used to start a condition chain
+// C is used to start a condition chain provided with a ConditionConfig
 func C(condition *ConditionConfig) ConditionOperator {
 	wq, err := NewCondition(condition)
 
@@ -68,7 +68,7 @@ func (c *ConditionBuilder) addNext(node *operatorNode) error {
 		return errors.New("next can not be nil")
 	}
 
-	//different behavior if its the first of the chain
+	//different behavior if it's the first of the chain
 	if c.Start == nil {
 		c.Start = node
 		c.Current = node.Query
@@ -96,6 +96,10 @@ func (c *ConditionBuilder) Not(condition *ConditionConfig) ConditionOperator {
 	return c.addCondition(condition, "NOT")
 }
 
+func (c *ConditionBuilder) AndNot(condition *ConditionConfig) ConditionOperator {
+	return c.addCondition(condition, "AND NOT")
+}
+
 func (c *ConditionBuilder) AndNested(query WhereQuery, err error) ConditionOperator {
 	return c.addNestedCondition(query, err, "AND")
 }
@@ -112,6 +116,10 @@ func (c *ConditionBuilder) NotNested(query WhereQuery, err error) ConditionOpera
 	return c.addNestedCondition(query, err, "NOT")
 }
 
+func (c *ConditionBuilder) AndNotNested(query WhereQuery, err error) ConditionOperator {
+	return c.addNestedCondition(query, err, "AND NOT")
+}
+
 func (c *ConditionBuilder) addNestedCondition(query WhereQuery, err error, condType string) ConditionOperator {
 	if c.hasErrors() {
 		return c
@@ -122,7 +130,7 @@ func (c *ConditionBuilder) addNestedCondition(query WhereQuery, err error, condT
 		return c
 	}
 
-	//create node, make sure to wrap the query in parenthases since its nested.
+	//create node, make sure to wrap the query in parentheses since it's nested.
 	node := &operatorNode{
 		Condition: condType,
 		Query: &conditionNode{
@@ -239,6 +247,8 @@ type ConditionOperator interface {
 	XorNested(query WhereQuery, err error) ConditionOperator
 	Not(c *ConditionConfig) ConditionOperator
 	NotNested(query WhereQuery, err error) ConditionOperator
+	AndNot(c *ConditionConfig) ConditionOperator
+	AndNotNested(query WhereQuery, err error) ConditionOperator
 	Build() (WhereQuery, error)
 }
 
@@ -258,7 +268,7 @@ const (
 	ContainsOperator             BooleanOperator = "CONTAINS"
 )
 
-//configuration object for where condition
+// ConditionConfig is the configuration object for where conditions
 type ConditionConfig struct {
 	//operators that can be used
 	ConditionOperator BooleanOperator
@@ -273,10 +283,16 @@ type ConditionConfig struct {
 	//exclude parentheses
 	FieldManipulationFunction string
 
-	//if its a single check
+	// When using any operator to compare to a specific value (other than InOperator), this field must be specified.
+	// If Check and (CheckName, CheckField) are both specified - Check will take precedence.
 	Check interface{}
 
-	//if its a slice check
+	// When comparing one node to another, CheckField and CheckName must be specified. CheckLabel is optional
+	CheckName  string
+	CheckField string
+	CheckLabel string
+
+	// When using the InOperator, this field must be specified
 	CheckSlice []interface{}
 }
 
@@ -322,11 +338,11 @@ func (condition *ConditionConfig) ToString() (string, error) {
 	if condition.ConditionOperator != "" {
 		query += fmt.Sprintf(" %s", condition.ConditionOperator)
 	} else if condition.ConditionFunction != "" {
-		//if its a condition function, we're done
+		//if it's a condition function, we're done
 		return fmt.Sprintf("%s(%s)", condition.ConditionFunction, query), nil
 	}
 
-	//check if its valid for in
+	//check if it's valid for in
 	if condition.ConditionOperator == InOperator {
 		if condition.CheckSlice == nil {
 			return "", errors.New("slice can not be nil")
@@ -353,11 +369,17 @@ func (condition *ConditionConfig) ToString() (string, error) {
 
 		query += " " + strings.TrimSuffix(q, ",") + "]"
 	} else {
-		str, err := cypherizeInterface(condition.Check)
-		if err != nil {
-			return "", err
+		if condition.Check != nil {
+			str, err := cypherizeInterface(condition.Check)
+			if err != nil {
+				return "", err
+			}
+			query += " " + str
+		} else if condition.CheckName != "" && condition.CheckField != "" {
+			query += fmt.Sprintf("%s.%s", condition.CheckName, condition.CheckField)
+		} else {
+			return "", errors.New("one of (Check) or (CheckName, CheckField) must be specified")
 		}
-		query += " " + str
 	}
 
 	return query, nil
