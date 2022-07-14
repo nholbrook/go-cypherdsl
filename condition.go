@@ -1,3 +1,31 @@
+// OpenCypher9 Spec - Types of constraints
+// ---------------------------------------
+// C - Completed
+// IP - In progress
+// P - Planned
+// NS - Not supported
+// ---------------------------------------
+// [C] 1. Boolean operations (n.name = 'Peter' XOR (n.age < 30 AND n.name = 'Tobias') OR NOT (n.name = 'Tobias' OR n.name = 'Peter'))
+// [C] 2. Filter on node label (n:Swedish)
+// [C] 3. Filter on node property (n.age > 30)
+// [?] 4. Filter on relationship property (k.since < 2000)
+// [?] 5. Filter on dynamically-computed node property (n[toLower(propname)]< 30)
+// [C] 6. Property existence checking (exists(n.belt))
+// [C] 7. Match the beginning of a string (n.name STARTS WITH 'Pet')
+// [C] 8. Match the ending of a string (n.name ENDS WITH 'ter')
+// [C] 9. Match anywhere within a string (n.name CONTAINS 'ete')
+// [C] 10. String matching negation (NOT n.name ENDS WITH 's')
+// [C] 11. Filter on patterns (others.name IN ['Andres', 'Peter'] AND (tobias)<-[]-(others))
+// [C] 12. Filter on patterns using NOT (NOT (persons)-[]->(peter))
+// [C] 13. Filter on patterns with properties ((n)-[:KNOWS]-({name: 'Tobias'}))
+// [?] 14. Filter on relationship type (n.name='Andres' AND type(r) STARTS WITH 'K')
+// [C] 15. IN operator (a.name IN ['Peter', 'Tobias'])
+// [?] 16. Default to false if property is missing (n.belt = 'white')
+// [?] 17. Default to true if property is missing (n.belt = 'white' OR n.belt IS NULL RETURN n.name, n.age, n.belt)
+// [?] 18. Filter on null (person.name = 'Peter' AND person.belt IS NULL RETURN person.name, person.age, person.belt)
+// [C] 19. Simple range (a.name >= 'Peter')
+// [C] 20. Composite range (a.name > 'Andres' AND a.name < 'Tobias')
+
 package go_cypherdsl
 
 import (
@@ -96,10 +124,6 @@ func (c *ConditionBuilder) Not(condition *ConditionConfig) ConditionOperator {
 	return c.addCondition(condition, "NOT")
 }
 
-func (c *ConditionBuilder) AndNot(condition *ConditionConfig) ConditionOperator {
-	return c.addCondition(condition, "AND NOT")
-}
-
 func (c *ConditionBuilder) AndNested(query WhereQuery, err error) ConditionOperator {
 	return c.addNestedCondition(query, err, "AND")
 }
@@ -114,10 +138,6 @@ func (c *ConditionBuilder) XorNested(query WhereQuery, err error) ConditionOpera
 
 func (c *ConditionBuilder) NotNested(query WhereQuery, err error) ConditionOperator {
 	return c.addNestedCondition(query, err, "NOT")
-}
-
-func (c *ConditionBuilder) AndNotNested(query WhereQuery, err error) ConditionOperator {
-	return c.addNestedCondition(query, err, "AND NOT")
 }
 
 func (c *ConditionBuilder) addNestedCondition(query WhereQuery, err error, condType string) ConditionOperator {
@@ -247,8 +267,6 @@ type ConditionOperator interface {
 	XorNested(query WhereQuery, err error) ConditionOperator
 	Not(c *ConditionConfig) ConditionOperator
 	NotNested(query WhereQuery, err error) ConditionOperator
-	AndNot(c *ConditionConfig) ConditionOperator
-	AndNotNested(query WhereQuery, err error) ConditionOperator
 	Build() (WhereQuery, error)
 }
 
@@ -270,63 +288,87 @@ const (
 
 // ConditionConfig is the configuration object for where conditions
 type ConditionConfig struct {
-	// Operators that can be used
+	// Either ConditionOperator or ConditionFunction can be set, depending on whether an operator (e.g. '=') is
+	// required, or a function (e.g. exists()). Both cannot be specified.
 	ConditionOperator BooleanOperator
-
-	// Condition functions that can be used
 	ConditionFunction string
 
-	Name  string
-	Field string
-	Label string
-
-	//exclude parentheses
+	// When constructing a conditional, Name must be specified (unless filtering on a Path). Additionally, either
+	// Field or Label must be specified (but not both). If Field is specified, FieldManipulationFunction is an
+	// optional function that can be specified to manipulate the specified Field during the query. If Label
+	// is specified, all other fields (other than Name and NegateCondition) will be ignored.
+	Name                      string
+	Field                     string // TODO: Rename to `Property` to match OC9 spec
+	Label                     string
 	FieldManipulationFunction string
 
+	// When filtering on a Path, the only other field that can be specified is NegateCondition.
+	Path *PathBuilder
+
 	// When using any operator to compare to a specific value (other than InOperator), this field must be specified.
-	// If Check and (CheckName, CheckField) are both specified - Check will take precedence.
+	// If Check and (CheckName, CheckField) are both specified - (CheckName, CheckField) will take precedence.
 	Check interface{}
 
-	// When comparing one node to another, CheckField and CheckName must be specified. CheckLabel is optional
+	// When comparing one node to another, CheckField and CheckName must be specified.
 	CheckName  string
 	CheckField string
-	CheckLabel string
 
-	// When using the InOperator, this field must be specified
+	// When using the InOperator, this field must be specified. This will not apply to any other operators.
 	CheckSlice []interface{}
 
-	// When NegateCondition is set to true, NOT is appended to the start of this condition
+	// When NegateCondition is set to true, NOT is appended to the start of this condition to apply a logical
+	// negation to the statement.
 	NegateCondition bool
 }
 
 func (condition *ConditionConfig) ToString() (string, error) {
-	//check initial error conditions
-	if condition.Name == "" && condition.Field == "" && condition.Label == "" && condition.FieldManipulationFunction == "" {
-		return "", errors.New("all of Name, Field, Function, and Label must be specified")
-	}
-
-	if condition.Field != "" && condition.Label != "" && condition.FieldManipulationFunction != "" {
-		return "", errors.New("not all of Field, Label, and FieldManipulationFunction can be specified")
-	}
-
-	query := ""
+	var sb strings.Builder
 
 	if condition.NegateCondition {
-		query += "NOT "
+		sb.WriteString("NOT ")
 	}
 
-	// Build the fields
+	if condition.Path != nil {
+		cypher, err := condition.Path.ToCypher()
+		if err != nil {
+			return "", fmt.Errorf("error converting path to cypher: %s", err)
+		}
+		sb.WriteString(cypher)
+		return sb.String(), nil
+	}
+
+	if condition.Name == "" {
+		return "", errors.New("to construct a query, Name must be specified")
+	}
+
+	if condition.Label == "" && (condition.Field == "" && condition.FieldManipulationFunction == "") {
+		return "", errors.New("either Label or (Field, FieldManipulationFunction) must be specified")
+	}
+
+	if condition.Field != "" && condition.Label != "" {
+		return "", errors.New("only one of Field and Label can be specified")
+	}
+
+	if condition.FieldManipulationFunction != "" && condition.Field == "" {
+		return "", errors.New("if FieldManipulationFunction is specified, Field must also be specified")
+	}
+
+	if condition.Label != "" {
+		sb.WriteString(fmt.Sprintf("%s:%s", condition.Name, condition.Label))
+		return sb.String(), nil
+	}
+
+	var node string
 	if condition.Field != "" {
-		query += fmt.Sprintf("%s.%s", condition.Name, condition.Field)
-	} else if condition.Label != "" {
-		//we're done here
-		return fmt.Sprintf("%s:%s", condition.Name, condition.Label), nil
+		node = fmt.Sprintf("%s.%s", condition.Name, condition.Field)
 	} else {
-		query += condition.Name
+		node = condition.Name
 	}
 
 	if condition.FieldManipulationFunction != "" {
-		query += fmt.Sprintf("%s(%s)", condition.FieldManipulationFunction, query)
+		sb.WriteString(fmt.Sprintf("%s(%s)", condition.FieldManipulationFunction, node))
+	} else {
+		sb.WriteString(node)
 	}
 
 	if condition.ConditionOperator == "" && condition.ConditionFunction == "" {
@@ -337,17 +379,20 @@ func (condition *ConditionConfig) ToString() (string, error) {
 		return "", errors.New("only one of ConditionOperator or ConditionFunction can be specified")
 	}
 
-	// build the operators
-	if condition.ConditionOperator != "" {
-		query += fmt.Sprintf(" %s", condition.ConditionOperator)
-	} else if condition.ConditionFunction != "" {
+	// Handle ConditionFunction if specified
+	if condition.ConditionFunction != "" {
 		if condition.NegateCondition {
-			return fmt.Sprintf("NOT %s(%s)", condition.ConditionFunction, strings.Trim(query, "NOT ")), nil
+			return fmt.Sprintf(
+				"NOT %s(%s)", condition.ConditionFunction, strings.Trim(sb.String(), "NOT "),
+			), nil
 		}
-		return fmt.Sprintf("%s(%s)", condition.ConditionFunction, query), nil
+		return fmt.Sprintf("%s(%s)", condition.ConditionFunction, sb.String()), nil
 	}
 
-	//check if it's valid for in
+	// Add ConditionOperator to query
+	sb.WriteString(fmt.Sprintf(" %s", condition.ConditionOperator))
+
+	// Handle edge cases for specific ConditionOperator types
 	if condition.ConditionOperator == InOperator {
 		if condition.CheckSlice == nil {
 			return "", errors.New("slice can not be nil")
@@ -372,22 +417,20 @@ func (condition *ConditionConfig) ToString() (string, error) {
 			q += fmt.Sprintf("%s,", str)
 		}
 
-		query += " " + strings.TrimSuffix(q, ",") + "]"
+		sb.WriteString(fmt.Sprintf(" %s]", strings.TrimSuffix(q, ",")))
 	} else {
-		if condition.Check != nil {
+		if condition.CheckName != "" && condition.CheckField != "" {
+			sb.WriteString(fmt.Sprintf(" %s.%s", condition.CheckName, condition.CheckField))
+		} else {
 			str, err := cypherizeInterface(condition.Check)
 			if err != nil {
 				return "", err
 			}
-			query += " " + str
-		} else if condition.CheckName != "" && condition.CheckField != "" {
-			query += fmt.Sprintf(" %s.%s", condition.CheckName, condition.CheckField)
-		} else {
-			return "", errors.New("one of (Check) or (CheckName, CheckField) must be specified")
+			sb.WriteString(" " + str)
 		}
 	}
 
-	return query, nil
+	return sb.String(), nil
 }
 
 func NewCondition(condition *ConditionConfig) (WhereQuery, error) {
